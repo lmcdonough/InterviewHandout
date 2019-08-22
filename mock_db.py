@@ -12,6 +12,7 @@ class DB:
         self.store = {}
 
 
+
     def _find(self, obj, many=False):
         """
             Helper function for shared functionality of find one and many
@@ -193,7 +194,7 @@ class DB:
             if matched:
                 for prop_key, new_value in update.items():
                     self.store[key][prop_key] = new_value
-            	return self.store[key]
+                return self.store[key]
 
 
     def update_many(self, obj_filter, update):
