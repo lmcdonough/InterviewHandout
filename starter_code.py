@@ -1,5 +1,5 @@
-import time
 import pdb
+import time
 import mock_db
 import uuid
 from worker import worker_main
@@ -11,7 +11,7 @@ def lock_is_free():
 
         Return whether the lock is free
     """
-    locked = db.find_one({"Locked": True})
+    locked = db.find_one({"Active": True})
     if locked:
         return False
     return True
@@ -33,29 +33,27 @@ def attempt_run_worker(worker_hash, give_up_after, db, retry_interval):
     """
 
     worker = db.find_one({"_id": worker_hash})
-    if not worker:
-        worker = db.insert_one({"_id": worker_hash, "Locked": False, "time_stamp": time.time()})
-    service_healthy = True
+    if not worker:        
+        worker = db.insert_one({"_id": worker_hash, "Active": False, "time_stamp": time.time()})
 
     while True:
         worker = db.find_one({"_id": worker_hash})
         current_time = time.time()
         if (current_time - worker["time_stamp"]) > give_up_after:
             print("\n\n    ### Worker {} timed out. Stopping worker {}... ###\n\n".format(worker_hash, worker_hash))
+            db.update_one({"_id": worker_hash}, {"_id": worker_hash, "Active": False, "time_stamp": current_time})
             return
-        if lock_is_free() and service_healthy:
+        elif lock_is_free():
             try:
-                worker = db.update_one({"_id": worker_hash}, {"_id": worker_hash, "Locked": True, "time_stamp": current_time})
-                print("Lock is free, worker {} has aquired lock.".format(worker_hash))
+                worker = db.update_one({"_id": worker_hash}, {"_id": worker_hash, "Active": True, "time_stamp": current_time})
                 worker_main(worker_hash, db)
-                print("\n\n    ### Worker {} completed recurring task. ###\n\n".format(worker_hash))
+                db.update_one({"_id": worker_hash}, {"_id": worker_hash, "Active": False, "time_stamp": current_time})
+                print("\n\n    ### Worker {} completed task and dequeued... ###\n\n".format(worker_hash))
+                return
             except:
-                print("\n\n    ### Worker {} has failed. Worker will poll unsuccessfully until timeout... ###\n\n".format(worker_hash, worker_hash))
-                service_healthy = False
-            finally:
-                # create new time_stamp simulating perhaps it was a long job to complete.
-                db.update_one({"_id": worker_hash}, {"_id": worker_hash, "Locked": False, "time_stamp": time.time()})
-                print("worker {} has released lock.".format(worker_hash))
+                print("\n\n    ### Worker {} has crashed... ###\n\n".format(worker_hash))
+                db.update_one({"_id": worker_hash}, {"_id": worker_hash, "Active": False, "time_stamp": current_time})
+                return
         else:
             time.sleep(retry_interval)
     return
